@@ -1,0 +1,91 @@
+// |
+// | LandTrendr Ensemble - Step 3: Inference
+// | 
+// | [valpasq@bu.edu], 2021
+// |
+// |
+// | This script is used to apply model-selected thresholds to
+// | mapped results. Requires thresholds to be copied over from
+// | model output into utils/thresholds.js file. Ensemble results
+// | are exported to both Assets (for visualization) and Drive 
+// | (for external use).
+// |
+
+var utils = require('users/valeriepasquarella/lt-ensemble:utils.js');
+var config = require('users/valeriepasquarella/lt-ensemble:config/thresholds.js');
+var ENSEMBLE_OUPUTS = config.ENSEMBLE_OUPUTS;
+
+var DIR = 'projects/ee-valeriepasquarella/assets/LT-GEE/';
+
+var CONFIG = {
+  'output_version': 'v6-0',
+  'start_year': 1986,
+  'end_year': 2019,
+  'focal': 3,
+  'threshold': 30,
+  'threshold_type': 'perc'
+};
+
+var LAYER_NAME = 'Degenerate trees ensemble';
+
+var OUTPUT_PATH = CONFIG.output_version + 
+    '_ensemble_ba_' + CONFIG.threshold_type;
+
+var OUTPUT_CRS = 'EPSG:5070';
+
+var NBR_PATH = DIR + 'v6-0-1_NBR_annual'; 
+var NDMI_PATH = DIR + 'v6-0-1_NDMI_annual';
+var TCW_PATH = DIR + 'v6-0-1_TCW_annual';
+
+if (CONFIG.focal == 3) {
+  var NBR = ee.ImageCollection(NBR_PATH + '_3x3');
+  var NDMI = ee.ImageCollection(NDMI_PATH + '_3x3');
+  var TCW = ee.ImageCollection(TCW_PATH + '_3x3');
+  var SELECT = ['mag_mean', 'mmu_max'];
+  
+} else if (CONFIG.focal == 1) {
+  var NBR = ee.ImageCollection(NBR_PATH);
+  var NDMI = ee.ImageCollection(NDMI_PATH);
+  var TCW = ee.ImageCollection(TCW_PATH);
+  var SELECT = ['mmu', 'mag'];
+}
+
+for (var year = CONFIG.start_year; year <= CONFIG.end_year; year++) {
+    var desc = 'ensemble_' + year + '_' + CONFIG.threshold;
+    
+    var result = utils.generate_ensemble(year, CONFIG.threshold, 
+                                         NBR, NDMI, TCW, SELECT, 
+                                         ENSEMBLE_OUPUTS)
+        .setMulti(CONFIG)
+        .set('map_year', year);
+        
+    result = utils.nlcd_mask(result);
+    
+    Map.addLayer(ee.Image(result), {}, desc, false);
+    
+    Export.image.toAsset({
+        image: result, 
+        description: desc + '_asset',
+        assetId: DIR + OUTPUT_PATH + '/' + desc,
+        region: result.geometry(), 
+        scale: 30, 
+        crs: OUTPUT_CRS, 
+        pyramidingPolicy: {'.default': 'mode'},
+        maxPixels: 1e13
+    });  
+  
+    Export.image.toDrive({
+        image: result,
+        description: desc + '_drive',
+        folder: OUTPUT_PATH,
+        fileNamePrefix: desc,
+        region: result.geometry(),
+        crs: OUTPUT_CRS,
+        scale: 30,
+        maxPixels: 1e13,
+        fileDimensions: 32000
+    });
+}
+
+var stylers = require('users/valeriepasquarella/shared:map_stylers');
+Map.setOptions('Dark', {Dark: stylers.dark_mode});

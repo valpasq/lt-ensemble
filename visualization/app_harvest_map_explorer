@@ -1,0 +1,225 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var ensemble = ee.ImageCollection("projects/ee-valeriepasquarella/assets/LT-GEE/v6-0_ensemble_ba_perc");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// |
+// | LandTrendr Ensemble - Harvest Map Explorer
+// | 
+// | [valpasq@bu.edu], 2021
+// | 
+// |
+// | App for interactively viewing final harvest maps. Results
+// | generated using degenerate trees ensemble approach using
+// | a 30% basal area removal cutoff to define "harvest".
+// | 
+
+var utils = require('users/valeriepasquarella/lt-ensemble:utils.js');
+
+// Visualize pre-computed degenerate tree ensemble results
+var START_YEAR = 1986;  
+var END_YEAR = 2019; 
+
+var PALETTE = ['#9400D3', '#4B0082', 
+               '#0000FF', '#00FF00', 
+               '#FFFF00', '#FF7F00', 
+               '#FF0000'];
+
+var viz_params = {
+  min: START_YEAR,
+  max: END_YEAR,
+  palette: PALETTE
+};
+
+var COLORS = {
+  'transparent': 'rgba(255, 255, 255, 0)',
+  'dark': 'rgba(0, 0, 0, 0.7)',
+  'main_text': 'white',
+  'sub_text': 'grey'
+};
+
+var checkbox_style = {
+    stretch: 'both',
+    position: 'bottom-right',
+    backgroundColor: COLORS.dark
+  };
+
+var panel = ui.Panel({
+    style: {
+      width: '250px',
+      position: 'bottom-left',
+      backgroundColor: COLORS.dark
+    }
+  });
+  
+
+// Create client-side range list 
+function range(start_inc, end_inc) {
+  var out = [];
+  for (var i = start_inc; i <= end_inc; ++i) {
+    out.push(i); 
+  }
+  return out;
+}
+
+function get_ensemble(year) {
+  var result = ensemble
+      .filterMetadata('map_year', 'equals', year)
+      .first();
+      
+  return result
+      .addBands(ee.Image(ee.Number(year)).short())
+      .updateMask(result.select('change'))
+      .rename(['change', 'year']);
+}
+
+function ColorBar(palette) {
+  return ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: {
+      bbox: [0, 0, 1, 0.1],
+      dimensions: '230x20',
+      format: 'png',
+      min: 0,
+      max: 1,
+      palette: palette,
+    },
+    style: {
+      stretch: 'horizontal', 
+      margin: '2px 2px', 
+      backgroundColor: COLORS.transparent},
+  });
+}
+
+function makeLegend(palette) {
+  var legendTitle = ui.Label({
+    value: 'Year of Detection',
+    style: {
+      fontWeight: 'bold',
+      fontSize: '12px',
+      color: 'white',
+      margin: '0 0 2px 0',
+      padding: '0',
+      backgroundColor: COLORS.transparent
+    }
+    });
+    
+  var labelPanel = ui.Panel({
+      widgets: [
+        ui.Label(START_YEAR, {
+            margin: '2px 2px', 
+            textAlign: 'left',  
+            stretch: 'horizontal', 
+            backgroundColor: COLORS.transparent, 
+            color: 'white'}),
+        ui.Label(END_YEAR, {
+            margin: '2px 2px', 
+            textAlign: 'right',  
+            stretch: 'horizontal', 
+            backgroundColor: COLORS.transparent, 
+            color: 'white'})
+      ],
+      layout: ui.Panel.Layout.flow('horizontal'),
+      style: { backgroundColor: COLORS.transparent}});
+  
+  return ui.Panel({
+    widgets: [legendTitle, ColorBar(palette), labelPanel],
+    style: {position: 'bottom-left', backgroundColor: COLORS.transparent}
+  });
+}
+
+for(var year = START_YEAR; year <= END_YEAR; year++){
+  var layer = get_ensemble(year);
+  Map.addLayer(layer.select('year'), viz_params, 'change ' + year, true);
+}
+
+var years_list = range(START_YEAR, END_YEAR);
+
+var checkboxes = [];
+years_list.forEach(function(name, index) {
+  var box = ui.Checkbox({
+    label: name, 
+    value: true,
+    style: {
+      color: COLORS.main_text,
+      fontSize: '12px',
+      margin: '0px 0px 8px 0px',
+      backgroundColor: COLORS.transparent
+    },
+    onChange: function(checked) {
+      Map.layers().get(index).setShown(checked);
+    }
+  });
+  
+  checkboxes.push(box);
+});
+
+var check_all = ui.Checkbox({
+    label: 'all', 
+    value: true,
+    style: {
+      color: COLORS.main_text,
+      fontSize: '12px',
+      margin: '12px 0px 12px 0px',
+      backgroundColor: COLORS.transparent
+    },
+    onChange: function(checked) {
+      years_list.forEach(function(name /* unused */, index) {
+        checkboxes[index].setValue(checked);
+      });
+    }
+  });
+
+var select_years = ui.Panel({
+  widgets: [ 
+    ui.Panel([checkboxes[0], checkboxes[1], checkboxes[2], checkboxes[3], checkboxes[4],
+              checkboxes[5], checkboxes[6], checkboxes[7], checkboxes[8], checkboxes[9],
+              checkboxes[10], checkboxes[11], checkboxes[12], checkboxes[13], checkboxes[14]], ui.Panel.Layout.Flow('vertical'), checkbox_style),
+    ui.Panel([checkboxes[15], checkboxes[16], checkboxes[17], checkboxes[18], checkboxes[19],
+              checkboxes[20], checkboxes[21], checkboxes[22], checkboxes[23], checkboxes[24],
+              checkboxes[25], checkboxes[26], checkboxes[27], checkboxes[28], checkboxes[29]], ui.Panel.Layout.Flow('vertical'), checkbox_style),
+    ui.Panel([checkboxes[30], checkboxes[31], checkboxes[32], checkboxes[33], check_all], ui.Panel.Layout.Flow('vertical'), checkbox_style),
+  
+  ],
+  layout: ui.Panel.Layout.Flow('horizontal'), 
+  style: checkbox_style
+  }
+);
+
+var app_title = ui.Label({
+  value: 'Harvest Map Explorer',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '16px',
+    color: 'white',
+    textAlign: 'center', 
+    padding: '0',
+    backgroundColor: COLORS.transparent
+  }
+});
+
+var app_desc = ui.Label({
+  value: 'LandTrendr multi-spectral ensemble for detecting harvest ' +
+         'events corresponding to at least 30% basal area removal.',
+  style: {
+    fontSize: '12px',
+    color: 'white',
+    textAlign: 'left', 
+    padding: '0',
+    backgroundColor: COLORS.transparent
+  }
+});
+
+
+Map.add(panel.add(app_title)
+    .add(app_desc)
+    .add(makeLegend(PALETTE))
+    .add(select_years));
+
+var stylers = require('users/valeriepasquarella/shared:map_stylers');
+Map.setOptions('Dark', {Dark: stylers.dark_mode});
+
+Map.setCenter(-68.7472, 46.9676, 12);
+
+Map.setControlVisibility({
+    zoomControl: true,
+    drawingToolsControl: false,
+    layerList: false});

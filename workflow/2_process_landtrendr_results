@@ -1,0 +1,154 @@
+// |
+// | LandTrendr Ensemble - Step 2: Process LandTrendr results
+// | 
+// | [valpasq@bu.edu], 2021
+// |
+// |
+// | This script pre-processes annual LandTrendr results for
+// | use in ensemble models. Pre-processing includes filtering
+// | by segment duration and applying a 3x3 smoothing kernel.
+// | Results for are exported for both 1x1 (native resolution)
+// | and 3x3 kernels to Drive (for modeling) and to EE Assets
+// | (for inference).
+// |
+
+var ASSET_DIR = 'projects/ee-valeriepasquarella/assets/LT-GEE/';
+
+var CONFIG = {
+    'spectral_band': 'NBR',
+    'lt_start_year': 1985,
+    'lt_end_year': 2020,
+    'run_version': 'v6-0',
+    'export_version': 'v6-0-1',
+    'state': 'ME',
+    'dur_filt': 2,
+};
+
+var LT_COLLECTION = ee.ImageCollection(ASSET_DIR + CONFIG.run_version + '_' + CONFIG.spectral_band + '_annual');
+
+var OUTPUT_CRS = 'EPSG:5070';
+var OUTPUT_SCALE = 30;
+
+var DRIVE_FOLDER = 'LT-GEE_' + CONFIG.export_version + '_' + CONFIG.spectral_band;
+
+var OUTPUT_COLLECTION = CONFIG.export_version + '_' + CONFIG.spectral_band + '_annual/';
+var OUTPUT_COLLECTION_FOCAL = CONFIG.export_version + '_' + CONFIG.spectral_band + '_annual_3x3/';
+var KERNEL = ee.Kernel.square(1.5, 'pixels');
+
+var state = ee.FeatureCollection("TIGER/2018/States")
+    .filterMetadata('STUSPS', 'equals', CONFIG.state);
+
+for(var map_year = CONFIG.lt_start_year; map_year <= CONFIG.lt_end_year; map_year++){
+  var TIF_NAME = CONFIG.export_version + '_' + CONFIG.spectral_band + '_06-20_09-20_' + map_year + '_' + CONFIG.state;
+  
+  // Select by year of loss (segment end year)
+  var year_select = LT_COLLECTION
+      .filterMetadata('map_year', 'equals', map_year)
+      .first();
+  
+  var lt =  year_select
+      .select(['yod', 'mag', 'dur', 'preval', 'rate', 'dsnr']);
+      
+  // Mask based on segment duration (v6-0-1)
+  lt = lt.updateMask(lt.select('dur').lte(CONFIG.dur_filt));
+
+  // Calculate connected components based on seg start year
+  var connectedPix = lt.select(['yod'])
+      .subtract(lt.select(['dur']))
+      .selfMask()
+      .connectedPixelCount({
+          eightConnected: true})
+      .rename('mmu');
+  
+  // Add connected components as band
+  lt = lt.addBands(connectedPix);
+  
+  // Add FTV after masking
+  lt = lt.addBands(year_select.select(['ftv'])).short();
+  
+  // Calculate focal statistics
+  var mag_count = lt.select('mag')
+      .reduceNeighborhood(ee.Reducer.count(), KERNEL);
+  
+  var mag_mean = lt.select('mag')
+      .reduceNeighborhood(ee.Reducer.mean(), KERNEL);
+  
+  var mag_max = lt.select('mag')
+      .reduceNeighborhood(ee.Reducer.max(), KERNEL);
+ 
+   var dur_mean = lt.select('dur')
+      .reduceNeighborhood(ee.Reducer.mean(), KERNEL);
+
+  var mmu_max = lt.select('mmu')
+      .reduceNeighborhood(ee.Reducer.max(), KERNEL);
+
+  var ftv_mean = lt.select('ftv')
+      .reduceNeighborhood(ee.Reducer.mean(), KERNEL)
+      .rename('ftv_mean');  
+  
+  var lt_focal = mag_count
+      .addBands(mag_mean)
+      .addBands(mag_max)
+      .addBands(dur_mean)
+      .addBands(mmu_max)
+      .addBands(ftv_mean)
+      .reproject(OUTPUT_CRS, null, OUTPUT_SCALE)
+      .short();
+
+  // Add results to Map to preview
+  Map.addLayer(lt, {bands: 'mag', min:0, max:1000}, 'year ' + map_year);
+  
+  // Export pixel-based results to Drive
+  Export.image.toDrive({
+      image: lt, 
+      description: 'lt_' + map_year +'_drive',
+      folder: DRIVE_FOLDER, 
+      fileNamePrefix: TIF_NAME, 
+      region: state.geometry().bounds(), 
+      scale: OUTPUT_SCALE, 
+      crs: OUTPUT_CRS, 
+      maxPixels: 1e13,
+      fileDimensions: 25600
+  }); 
+  
+  // Export kerel-based focal stats to Drive
+  Export.image.toDrive({
+      image: lt_focal, 
+      description: 'lt_' + map_year +'_drive_focal',
+      folder: DRIVE_FOLDER + '_3x3', 
+      fileNamePrefix: TIF_NAME + '_3x3', 
+      region: state.geometry().bounds(), 
+      scale: OUTPUT_SCALE, 
+      crs: OUTPUT_CRS, 
+      maxPixels: 1e13,
+      fileDimensions: 32000
+  }); 
+  
+  lt = lt
+      .setMulti(CONFIG)
+      .set('map_year', map_year);
+  
+  lt_focal = lt_focal
+      .setMulti(CONFIG)
+      .set('map_year', map_year);
+
+  Export.image.toAsset({
+      image: lt, 
+      description: 'lt_' + map_year +'_asset',
+      assetId: ASSET_DIR + OUTPUT_COLLECTION + TIF_NAME,
+      region: state.geometry().bounds(), 
+      scale: OUTPUT_SCALE, 
+      crs: OUTPUT_CRS, 
+      maxPixels: 1e13
+  }); 
+  
+  Export.image.toAsset({
+      image: lt_focal, 
+      description: 'lt_' + map_year +'_asset_3x3',
+      assetId: ASSET_DIR + OUTPUT_COLLECTION_FOCAL + TIF_NAME + '_3x3',
+      region: state.geometry().bounds(), 
+      scale: OUTPUT_SCALE, 
+      crs: OUTPUT_CRS, 
+      maxPixels: 1e13
+  }); 
+}

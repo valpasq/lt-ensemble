@@ -1,0 +1,182 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LCMS = ee.ImageCollection("USFS/GTAC/LCMS/v2020-5");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// |
+// | LandTrendr Ensemble - Ensemble Results Explorer
+// | 
+// | [valpasq@bu.edu], 2021
+// | 
+// |
+// | App for interactively exploring ensemble results by year 
+// | and percent basal area cutoff. LCMS fast loss included 
+// | for reference.
+// | 
+
+var utils = require('users/valeriepasquarella/lt-ensemble:utils.js');
+var config = require('users/valeriepasquarella/lt-ensemble:config/thresholds.js');
+var ENSEMBLE_OUPUTS = config.ENSEMBLE_OUPUTS;
+
+var DIR = 'projects/ee-valeriepasquarella/assets/LT-GEE/';
+
+var NBR = ee.ImageCollection(DIR + 'v6-0-1_NBR_annual_3x3');
+var NDMI = ee.ImageCollection(DIR + 'v6-0-1_NDMI_annual_3x3');
+var TCW = ee.ImageCollection(DIR + 'v6-0-1_TCW_annual_3x3');
+
+var SELECT = ['mag_mean', 'mmu_max'];
+
+// Start and end dates for mapping
+var START_YEAR = 1986;  
+var END_YEAR = 2019;
+var DEFAULT_YEAR = 2018;
+
+// Layer name for display
+var LAYER_NAME = 'Degenerate trees ensemble';
+
+var COLORS = {
+  'transparent': 'rgba(255, 255, 255, 0)',
+  'dark': 'rgba(0, 0, 0, 0.7)',
+  'main_text': 'white',
+  'sub_text': 'grey'
+};
+
+var bounds = ee.FeatureCollection('TIGER/2018/States')
+    .filterMetadata('STUSPS', 'equals', 'ME');
+
+function get_lcms(year) {
+  var fast_loss_value = 3;
+  var fast_loss = LCMS
+      .select('Change')
+      .filterMetadata('year', 'equals', year)
+      .first()
+      .clip(bounds)
+      .eq(fast_loss_value)
+      .selfMask();
+
+  return utils.nlcd_mask(fast_loss);
+}
+
+var panel = ui.Panel({
+    style: {
+      width: '350px',
+      position: 'bottom-left',
+      backgroundColor: COLORS.dark
+    }
+  });
+
+var panel_title = ui.Label({
+    value: 'Ensemble Results Explorer 🌲🪚',
+    style: {
+      color: COLORS.main_text,
+      fontSize: '18px',
+      fontFamily: 'sans-serif',
+      fontWeight: 'bold',
+      margin: '0 0 2px 0',
+      padding: '2',
+      backgroundColor: COLORS.transparent
+    }
+    });
+    
+var panel_descrip = ui.Label({
+    value: 'Use the sliders to select map year' +
+    ' and percent basal area removed cutoff', 
+    style: {
+      color: COLORS.sub_text,
+      fontSize: '12px',
+      margin: '0px 0px 12px 0px',
+      backgroundColor: COLORS.transparent
+    }
+    });
+    
+var year_slider = ui.Slider({
+    min: START_YEAR,
+    max: END_YEAR,
+    value: DEFAULT_YEAR,
+    step: 1,
+    style: {
+        color: COLORS.main_text,
+        fontFamily: 'sans-serif',
+        fontWeight: 'bold',
+        stretch: 'horizontal',
+        backgroundColor: COLORS.transparent
+    },
+    onChange: function(year) {
+      checkbox.setValue(false);
+      var threshold = threshold_slider.getValue();
+      var ensemble_layer = ui.Map.Layer(utils.nlcd_mask(utils.generate_ensemble(year, threshold, NBR, NDMI, TCW, SELECT, ENSEMBLE_OUPUTS)), {}, LAYER_NAME);
+      Map.layers().set(0, ensemble_layer);
+      
+      var lcms_layer = ui.Map.Layer(get_lcms(year), {min: 0, max: 1, palette: 'tomato'}, 'LCMS "fast change"', false);
+      Map.layers().set(1, lcms_layer);
+    }
+});
+
+var threshold_container = ui.Panel({
+        layout: ui.Panel.Layout.flow('horizontal'),
+        style: {
+            backgroundColor: COLORS.transparent,
+        },
+    });
+    
+var threshold_label = ui.Label({
+    value: 'Basal area removed cutoff (%):',
+    style: {
+      color: COLORS.main_text,
+      fontWeight: 'bold',
+      fontSize: '12px',
+      backgroundColor: COLORS.transparent
+    }
+    });
+
+var threshold_slider = ui.Slider({
+    min: 0, 
+    max: 90, 
+    value: 30, 
+    step: 10,
+    style: {
+        color: COLORS.main_text,
+        stretch: 'horizontal',
+        backgroundColor: COLORS.transparent,
+        fontFamily: 'sans-serif',
+    },
+    onChange: function(threshold) {
+      checkbox.setValue(false);
+      var year = year_slider.getValue();
+      var disp_layer = ui.Map.Layer(utils.nlcd_mask(utils.generate_ensemble(year, threshold, NBR, NDMI, TCW, SELECT, ENSEMBLE_OUPUTS)), {}, LAYER_NAME);
+      Map.layers().set(0, disp_layer);
+    }
+  
+});
+
+var checkbox = ui.Checkbox({
+  label:'Show LCMS fast change', 
+  value: false,
+  style: {
+      color: COLORS.main_text,
+      fontSize: '12px',
+      margin: '12px 0px 12px 0px',
+      backgroundColor: COLORS.transparent
+    }
+});
+
+checkbox.onChange(function(checked) {
+  // Shows or hides the first map layer based on the checkbox's value.
+  Map.layers().get(1).setShown(checked);
+});
+
+Map.add(panel.add(panel_title).add(panel_descrip).add(year_slider)
+    .add(threshold_container.add(threshold_label).add(threshold_slider))
+    .add(checkbox));
+
+var default_threshold = threshold_slider.getValue();
+
+var init_ensemble = ui.Map.Layer(utils.nlcd_mask(utils.generate_ensemble(DEFAULT_YEAR, default_threshold, NBR, NDMI, TCW, SELECT, ENSEMBLE_OUPUTS)), {}, LAYER_NAME);
+Map.layers().set(0, init_ensemble);
+    
+var init_lcms = ui.Map.Layer(get_lcms(DEFAULT_YEAR), {min: 0, max: 1, palette: 'tomato'}, 'LCMS "fast change"', false);
+Map.layers().set(1, init_lcms);
+
+var stylers = require('users/valeriepasquarella/shared:map_stylers');
+Map.setOptions('Dark', {Dark: stylers.dark_mode});
+Map.setOptions('SATELLITE');
+
+Map.setCenter(-68.9517, 46.0477, 10);

@@ -1,0 +1,137 @@
+// |
+// | LandTrendr Ensemble - Step 1: Run LandTrendr
+// | 
+// | [valpasq@bu.edu], 2021
+// |
+// |
+// | This script generates LandTrendr segementation results
+// | and outputs vertex information by year. This code is
+// | a modification of the core LandTrendr scripts provided
+// | by the eMapr lab in users/emaprlab/public.
+// |
+
+var ltgee = require('users/emaprlab/public:Modules/LandTrendr.js'); 
+ 
+var ASSET_DIR = 'projects/ee-valeriepasquarella/assets/LT-GEE/';
+
+// Asset properties
+var CONFIG = {
+    'spectral_band': 'TCW',
+    'lt_start_year': 1985,
+    'lt_end_year':  2020,
+    'lt_start_day': '06-20',
+    'lt_end_day': '09-20',
+    'run_version': 'v6-0',
+    'state': 'ME',
+    'delta': 'all'
+};
+
+var output_collection = CONFIG.run_version + '_' + CONFIG.spectral_band + '_annual/';
+var OUTPUT_CRS = 'EPSG:5070';
+var WATER_THRESH = 50;
+
+// -----------------------------------------------------
+// LandTrendr segmentation parameters
+var MASK_THESE = ['cloud', 'shadow', 'snow', 'water'];
+
+var runParams = { 
+    maxSegments:            8,
+    spikeThreshold:         0.9,
+    vertexCountOvershoot:   3,
+    preventOneYearRecovery: true,
+    recoveryThreshold:      0.75,
+    pvalThreshold:          0.05,
+    bestModelProportion:    0.75,
+    minObservationsNeeded:  6
+};
+
+// Custom pyramid policy
+var PYRAMID_POLICY = {
+    'yod': 'mode', 
+    'mag': 'mean',
+    'dur': 'mean',
+    'preval': 'mean',
+    'rate': 'mean',
+    'dsnr': 'mean',
+};
+
+// -----------------------------------------------------
+// ROI
+var state = ee.FeatureCollection("TIGER/2018/States")
+    .filterMetadata('STUSPS', 'equals', CONFIG.state);
+var aoi = state.geometry();
+var aoi_bounds = aoi.bounds();
+
+// -----------------------------------------------------
+// GSW masking
+var water = ee.Image("JRC/GSW1_2/GlobalSurfaceWater")
+    .select('occurrence')
+    .gte(WATER_THRESH)
+    .unmask();
+
+// -----------------------------------------------------
+// Run LandTrendr
+var lt = ltgee.runLT(CONFIG.lt_start_year, CONFIG.lt_end_year, 
+    CONFIG.lt_start_day, CONFIG.lt_end_day, 
+    aoi, CONFIG.spectral_band, [CONFIG.spectral_band], 
+    runParams, MASK_THESE);
+
+// -----------------------------------------------------
+// Extract the segmentation-fitted index stack 
+
+// make an empty array to hold year band names
+var years = [];
+
+// fill the array with years from the startYear to the endYear and convert them to string
+for (var i = CONFIG.lt_start_year; i <= CONFIG.lt_end_year; ++i) years.push('yr'+i.toString()); 
+
+// select out the 2nd band data which is the segmentation-fitted spectral index 
+var ltFitStack = lt.select([1])
+                   .arrayFlatten([years]);
+
+// -----------------------------------------------------
+// Annual vertices (loss)
+var segInfo = ltgee.getSegmentData(lt, CONFIG.spectral_band, CONFIG.delta);
+var seg_end = segInfo.arraySlice(0, 1, 2);
+
+for(var map_year = CONFIG.lt_start_year; map_year <= CONFIG.lt_end_year; map_year++){
+  var descrip = CONFIG.run_version + '_' + CONFIG.spectral_band + '_' 
+      + CONFIG.lt_start_day + '_' + CONFIG.lt_end_day 
+      + '_' + map_year + '_' + CONFIG.state;
+   
+  var mask_window = seg_end.eq(map_year);
+  var masked_array = segInfo.arrayMask(mask_window);
+  
+  var distImg = ee.Image.cat(masked_array.arraySlice(0,1,2).arrayProject([1]).arrayFlatten([['yod']]).toShort(),
+                            masked_array.arraySlice(0,4,5).arrayProject([1]).arrayFlatten([['mag']]),
+                            masked_array.arraySlice(0,5,6).arrayProject([1]).arrayFlatten([['dur']]),
+                            masked_array.arraySlice(0,2,3).arrayProject([1]).arrayFlatten([['preval']]),
+                            masked_array.arraySlice(0,6,7).arrayProject([1]).arrayFlatten([['rate']]),
+                            masked_array.arraySlice(0,7,null).arrayProject([1]).arrayFlatten([['dsnr']]));
+  
+  var ftv = ltFitStack.select('yr' + map_year)
+      .rename('ftv');
+  
+  var exportImg = distImg
+      .updateMask(water.eq(0))
+      .updateMask(distImg.select(['yod']).neq(0))
+      .addBands(ftv)
+      .short()
+      .clip(aoi)
+      .setMulti(CONFIG)
+      .set('map_year', map_year)
+      .set('system:time_start', ee.Date(map_year + '-' + CONFIG.lt_start_day).millis());
+  
+  // Map.addLayer(ee.Image(exportImg));
+
+  Export.image.toAsset({
+      image: exportImg, 
+      description: 'lt_' + map_year +'_asset',
+      assetId: ASSET_DIR + output_collection + descrip,
+      region: aoi_bounds, 
+      scale: 30, 
+      crs: OUTPUT_CRS, 
+      pyramidingPolicy: PYRAMID_POLICY,
+      maxPixels: 1e13
+  });  
+}
