@@ -1,0 +1,50 @@
+// Masking
+var utils = require('users/valeriepasquarella/lt-ensemble:utils.js');
+
+// Get state boundaries.
+var STATE_CODE = 'ME';
+var state = ee.FeatureCollection("TIGER/2018/States")
+    .filterMetadata('STUSPS', 'equals', STATE_CODE);
+var aoi = state.geometry();
+
+// Masking based on Global Surface Water.
+var WATER_THRESH = 50;
+var gsw_mask = ee.Image("JRC/GSW1_2/GlobalSurfaceWater")
+    .select('occurrence')
+    .gte(WATER_THRESH)
+    .unmask()
+    .not()
+    .clip(aoi)
+    .rename('gsw_mask');
+
+// Masking based on NLCD 2016 land cover.
+var nlcd_mask = utils.nlcd_mask(ee.Image(1))
+    .clip(aoi)
+    .unmask()
+    .rename('nlcd_mask');
+
+// Combined mask.
+var combined = gsw_mask
+    .add(nlcd_mask)
+    .clip(aoi)
+    .gt(1)
+    .rename('combined_mask');
+
+var masks = gsw_mask.addBands(nlcd_mask).addBands(combined).short();
+Map.addLayer(masks, {min: 0, max: 1}, 'masks');
+
+var FILNAME = 'masks_' + STATE_CODE;
+var OUTPUT_CRS = 'EPSG:5070';
+
+Export.image.toDrive({
+    image: masks,
+    description: 'masks_export',
+    folder: 'ee-exports',
+    fileNamePrefix: FILNAME,
+    region: masks.geometry(),
+    crs: OUTPUT_CRS,
+    scale: 30,
+    maxPixels: 1e13,
+    fileDimensions: 32000
+});
+
