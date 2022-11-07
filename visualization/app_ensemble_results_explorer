@@ -57,14 +57,14 @@ function get_lcms(year) {
 
 var panel = ui.Panel({
     style: {
-      width: '350px',
+      width: '360px',
       position: 'bottom-left',
       backgroundColor: COLORS.dark
     }
   });
 
 var panel_title = ui.Label({
-    value: 'Ensemble Results Explorer 🌲🪚',
+    value: 'LandTrendr Ensemble Results Explorer',
     style: {
       color: COLORS.main_text,
       fontSize: '18px',

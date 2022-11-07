@@ -10,7 +10,9 @@
 // | by the eMapr lab in users/emaprlab/public.
 // |
 
-var ltgee = require('users/emaprlab/public:Modules/LandTrendr.js'); 
+// Use deprecated C1 module to reproduce existing results. Should be 
+// updated for any new analysis.
+var ltgee = require('users/emaprlab/public:Modules/LandTrendr_C1_DEPRECATED.js'); 
  
 var ASSET_DIR = 'projects/ee-valeriepasquarella/assets/LT-GEE/';
 
@@ -23,7 +25,7 @@ var CONFIG = {
     'lt_end_day': '09-20',
     'run_version': 'v6-0',
     'state': 'ME',
-    'delta': 'all'
+    'delta': 'loss'
 };
 
 var output_collection = CONFIG.run_version + '_' + CONFIG.spectral_band + '_annual/';

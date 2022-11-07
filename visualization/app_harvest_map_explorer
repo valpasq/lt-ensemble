@@ -1,5 +1,6 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var ensemble = ee.ImageCollection("projects/ee-valeriepasquarella/assets/LT-GEE/v6-0_ensemble_ba_perc");
+var ensemble = ee.ImageCollection("projects/ee-valeriepasquarella/assets/LT-GEE/v6-0_ensemble_ba_perc"),
+    pos = ee.FeatureCollection("projects/ee-valeriepasquarella/assets/LPT/Maine_POS_zenodo_april2021");
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 // |
 // | LandTrendr Ensemble - Harvest Map Explorer
@@ -185,7 +186,7 @@ var select_years = ui.Panel({
 );
 
 var app_title = ui.Label({
-  value: 'Harvest Map Explorer',
+  value: 'Harvest Map Explorer 🌲🪚',
   style: {
     fontWeight: 'bold',
     fontSize: '16px',
@@ -214,12 +215,14 @@ Map.add(panel.add(app_title)
     .add(makeLegend(PALETTE))
     .add(select_years));
 
+Map.addLayer(pos, {color: 'white'}, 'POS (04-2021)');
+
 var stylers = require('users/valeriepasquarella/shared:map_stylers');
 Map.setOptions('Dark', {Dark: stylers.dark_mode});
 
-Map.setCenter(-68.7472, 46.9676, 12);
+Map.setCenter(-69.70, 45.90, 9);
 
 Map.setControlVisibility({
     zoomControl: true,
     drawingToolsControl: false,
-    layerList: false});
+    layerList: true});
